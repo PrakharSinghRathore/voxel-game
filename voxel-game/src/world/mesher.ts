@@ -186,8 +186,11 @@ export function meshChunk(
           if (neighbor === block) continue
 
           if (isWater) {
-            // Water: only render top face (+y = index 2) when air above
-            if (f !== 2 || neighbor !== BLOCK.AIR) continue
+            // Water: render faces where neighbor is NOT water
+            // Top face (+y = index 2): only render when air above
+            // Side/bottom faces: render when neighbor is air or a non-water solid
+            if (neighbor === BLOCK.WATER) continue
+            if (f === 2 && neighbor !== BLOCK.AIR) continue
           } else {
             if (!isEmptyForFace(neighbor, block)) continue
           }
@@ -228,7 +231,7 @@ export function meshChunk(
             const aoVal = 1.0 - (s1 + s2 + sc) * 0.18
             ao.push(aoVal)
 
-            const lightVal = Math.max(0.55, def.emissive / 15)
+            const lightVal = Math.max(0.6, def.emissive / 15)
             target.colors.push(aoVal, lightVal, 1.0)
           }
 
