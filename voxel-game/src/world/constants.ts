@@ -5,7 +5,7 @@ export const CHUNK_SIZE_Z = 16
 export const CHUNK_SIZE_Y = 64
 export const WORLD_HEIGHT = CHUNK_SIZE_Y
 export const SEA_LEVEL = 22
-export const RENDER_DISTANCE = 4
+export const RENDER_DISTANCE = 6
 
 // Block IDs
 export const BLOCK = {

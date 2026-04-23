@@ -109,10 +109,23 @@ const CHUNK_FRAG = `
     float ao = vColor.r;
     float light = vColor.g;
     vec3 n = normalize(vNormal);
-    float diff = max(dot(n, normalize(vec3(0.4, 1.0, 0.3))), 0.0);
-    float sunLight = mix(0.15, 1.0, diff) * uDaylight;
-    float finalLight = max(sunLight, max(light * 0.55, 0.35));
+    // Sun directional light with warm/cool tones
+    vec3 sunDir = normalize(vec3(0.4, 1.0, 0.3));
+    float diff = max(dot(n, sunDir), 0.0);
+    // Hemisphere lighting - warm from below, cool from above
+    float hemi = 0.5 + 0.5 * n.y;
+    vec3 hemiColor = mix(vec3(0.35, 0.25, 0.18), vec3(0.55, 0.75, 1.0), hemi);
+    // Combine lighting
+    float sunLight = mix(0.12, 1.0, diff) * uDaylight;
+    vec3 ambientHemi = hemiColor * 0.3 * (0.3 + uDaylight * 0.7);
+    float finalLight = max(sunLight, max(light * 0.55, 0.3));
+    finalLight = finalLight + ambientHemi.r * 0.15;
     vec3 col = tex.rgb * ao * finalLight;
+    // Subtle specular for stone/metal blocks
+    vec3 viewDir = vec3(0.0, 1.0, 0.0);
+    vec3 halfDir = normalize(sunDir + viewDir);
+    float spec = pow(max(dot(n, halfDir), 0.0), 64.0) * uDaylight * 0.1;
+    col += vec3(1.0, 0.95, 0.9) * spec * step(0.3, 1.0 - ao + 0.3);
     float fog = smoothstep(uFogNear, uFogFar, vFogDepth);
     gl_FragColor = vec4(mix(col, uFogColor, fog), tex.a);
   }
@@ -130,14 +143,47 @@ const WATER_FRAG = `
   varying vec3 vNormal;
   varying float vFogDepth;
   void main() {
-    vec2 uv2 = vUv + vec2(sin(uTime * 1.5 + vUv.y * 8.0) * 0.005, 0.0);
-    vec4 tex = texture2D(atlas, uv2);
+    // Animated wave UV distortion
+    vec2 waveUv = vUv;
+    waveUv.x += sin(uTime * 0.8 + vUv.y * 12.0 + vUv.x * 6.0) * 0.008;
+    waveUv.y += cos(uTime * 0.6 + vUv.x * 10.0) * 0.006;
+    // Secondary large waves
+    waveUv.x += sin(uTime * 0.3 + vUv.y * 3.0) * 0.012;
+    waveUv.y += cos(uTime * 0.25 + vUv.x * 2.5) * 0.010;
+    vec4 tex = texture2D(atlas, waveUv);
     float ao = vColor.r;
-    float diff = max(dot(normalize(vNormal), normalize(vec3(0.4, 1.0, 0.3))), 0.0);
+    vec3 n = normalize(vNormal);
+    // Fresnel effect - more reflective at grazing angles
+    float fresnel = pow(1.0 - max(dot(n, vec3(0.0, 1.0, 0.0)), 0.0), 3.0);
+    fresnel = 0.04 + 0.96 * fresnel;
+    // Diffuse lighting
+    float diff = max(dot(n, normalize(vec3(0.4, 1.0, 0.3))), 0.0);
     float sunLight = mix(0.15, 1.0, diff) * uDaylight;
-    vec3 col = tex.rgb * ao * sunLight;
+    // Depth-based coloring
+    vec3 shallowColor = vec3(0.2, 0.55, 0.8);
+    vec3 deepColor = vec3(0.05, 0.15, 0.35);
+    float depthFactor = smoothstep(0.0, 0.8, vFogDepth * 0.02);
+    vec3 waterColor = mix(shallowColor, deepColor, depthFactor);
+    // Specular highlight (sun reflection on water)
+    vec3 viewDir = normalize(vec3(0.0, 1.0, 0.0));
+    vec3 halfDir = normalize(normalize(vec3(0.4, 1.0, 0.3)) + viewDir);
+    float spec = pow(max(dot(n, halfDir), 0.0), 128.0) * uDaylight * 1.5;
+    // Foam at edges (based on AO indicating nearby blocks)
+    float foam = smoothstep(0.65, 0.75, ao) * (1.0 - depthFactor) * 0.6;
+    vec3 foamColor = vec3(0.85, 0.92, 0.95);
+    // Combine
+    vec3 baseCol = tex.rgb * ao * sunLight;
+    vec3 col = mix(baseCol, waterColor, 0.6);
+    col = mix(col, foamColor, foam);
+    col += vec3(1.0, 0.95, 0.85) * spec; // specular
+    col += vec3(0.3, 0.5, 0.6) * fresnel * 0.15; // sky reflection
+    // Fog
     float fog = smoothstep(uFogNear, uFogFar, vFogDepth);
-    gl_FragColor = vec4(mix(col, uFogColor, fog), 0.55);
+    col = mix(col, uFogColor, fog);
+    // Alpha: more opaque when deeper, with foam adding opacity
+    float alpha = mix(0.45, 0.75, depthFactor);
+    alpha = mix(alpha, 0.9, foam);
+    gl_FragColor = vec4(col, alpha);
   }
 `
 
@@ -158,18 +204,33 @@ const SKY_FRAG = `
     vec3 sunDir = vec3(cos(sunAngle) * 0.8, sin(sunAngle), cos(sunAngle) * 0.3);
     float sunH = sunDir.y;
     float day = smoothstep(-0.05, 0.25, sunH);
-    vec3 dayCol = mix(vec3(0.55, 0.75, 1.0), vec3(0.3, 0.5, 0.95), max(dir.y, 0.0));
+    // Richer day sky with gradient
+    vec3 dayZenith = vec3(0.22, 0.45, 0.92);
+    vec3 dayHorizon = vec3(0.6, 0.78, 1.0);
+    vec3 dayCol = mix(dayHorizon, dayZenith, max(dir.y, 0.0));
+    // Warm tint near horizon
+    float horizonFade = 1.0 - abs(dir.y);
+    dayCol += vec3(0.1, 0.05, 0.0) * horizonFade * horizonFade * day;
     vec3 nightCol = mix(vec3(0.01, 0.01, 0.05), vec3(0.005, 0.005, 0.02), max(dir.y, 0.0));
     vec3 col = mix(nightCol, dayCol, day);
+    // Sunset/sunrise glow
     float hGlow = smoothstep(-0.05, 0.0, sunH) * smoothstep(0.3, 0.0, sunH);
     float sProx = max(dot(dir, sunDir), 0.0);
     col += vec3(0.9, 0.35, 0.1) * hGlow * pow(sProx, 4.0) * 0.7;
+    col += vec3(1.0, 0.6, 0.2) * hGlow * pow(sProx, 2.0) * 0.3;
     col += vec3(1.0, 0.95, 0.8) * smoothstep(0.997, 0.9995, sProx) * day;
+    // Moon
     vec3 moonDir = -sunDir;
     float mProx = max(dot(dir, moonDir), 0.0);
     col += vec3(0.7, 0.75, 0.85) * smoothstep(0.997, 0.9995, mProx) * (1.0 - day);
+    // Moon glow
+    col += vec3(0.1, 0.12, 0.18) * pow(mProx, 4.0) * (1.0 - day) * 0.5;
+    // Stars with twinkling
     float star = (1.0 - day) * step(0.998, fract(sin(dot(floor(dir * 300.0), vec3(12.9898, 78.233, 45.164))) * 43758.5453)) * step(0.1, dir.y);
     col += vec3(1.0) * star * 0.8;
+    // Milky way band
+    float mwBand = (1.0 - day) * smoothstep(0.15, 0.0, abs(dir.y - 0.3)) * 0.08;
+    col += vec3(0.6, 0.65, 0.8) * mwBand;
     gl_FragColor = vec4(col, 1.0);
   }
 `
@@ -355,14 +416,16 @@ export class GameEngine {
   // ─────────────────────────────────────────────────────────
 
   private setupScene() {
-    this.renderer = new THREE.WebGLRenderer({ antialias: false })
+    this.renderer = new THREE.WebGLRenderer({ antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight)
     this.renderer.setClearColor(0x87ceeb)
+    this.renderer.shadowMap.enabled = false
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.container.appendChild(this.renderer.domElement)
     this.scene = new THREE.Scene()
-    this.scene.fog = new THREE.Fog(0x87ceeb, 40, 80)
-    this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 500)
+    this.scene.fog = new THREE.Fog(0x87ceeb, 50, 120)
+    this.camera = new THREE.PerspectiveCamera(70, this.container.clientWidth / this.container.clientHeight, 0.1, 500)
     window.addEventListener('resize', () => {
       const w = this.container.clientWidth, h = this.container.clientHeight
       this.camera.aspect = w / h
@@ -385,10 +448,13 @@ export class GameEngine {
   }
 
   private setupLighting() {
-    this.sunLight = new THREE.DirectionalLight(0xffffff, 1.0)
+    this.sunLight = new THREE.DirectionalLight(0xffffff, 1.2)
     this.sunLight.position.set(50, 100, 30)
     this.scene.add(this.sunLight)
-    this.ambientLight = new THREE.AmbientLight(0x404060, 0.4)
+    // Hemisphere light for sky/ground color bleeding
+    const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x4a3520, 0.35)
+    this.scene.add(hemiLight)
+    this.ambientLight = new THREE.AmbientLight(0x404060, 0.3)
     this.scene.add(this.ambientLight)
   }
 
@@ -405,8 +471,8 @@ export class GameEngine {
       atlas: { value: this.atlas },
       uDaylight: { value: 1.0 },
       uFogColor: { value: fogCol },
-      uFogNear: { value: 40.0 },
-      uFogFar: { value: 80.0 },
+      uFogNear: { value: 50.0 },
+      uFogFar: { value: 120.0 },
     }
     this.opaqueMat = new THREE.ShaderMaterial({
       vertexShader: CHUNK_VERT, fragmentShader: CHUNK_FRAG,
@@ -701,6 +767,9 @@ export class GameEngine {
   // MAIN UPDATE
   // ─────────────────────────────────────────────────────────
 
+  private waterFlowTimer = 0
+  private steamTimer = 0
+
   private update(dt: number) {
     if (this.dead) { this.emitStats(); return }
     this.updateDayNight(dt)
@@ -710,6 +779,8 @@ export class GameEngine {
     this.updateChunks()
     this.updateTarget()
     this.updateBreaking(dt)
+    this.updateWaterFlow(dt)
+    this.updateSteam(dt)
     this.updatePlacing()
     this.updateEnemies(dt)
     this.updateAnimals(dt)
@@ -749,10 +820,12 @@ export class GameEngine {
     if (this.inWater) speed = SWIM_SPEED
     if (this.hunger <= 0) speed *= 0.5
 
-    // Direction
+    // Direction — compute forward/right from yaw
+    // Forward = (-sin(yaw), 0, -cos(yaw)) in Three.js YXZ Euler
+    // Right   = ( cos(yaw), 0, -sin(yaw))
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw)
-    const dx = (moveX * cos - moveZ * sin) * speed
-    const dz = (moveX * sin + moveZ * cos) * speed
+    const dx = (moveX * cos + moveZ * sin) * speed
+    const dz = (-moveX * sin + moveZ * cos) * speed
 
     this.vel.x = dx
     this.vel.z = dz
@@ -1783,6 +1856,122 @@ export class GameEngine {
       blood_moon: 'Blood Moon Survivor!',
     }
     this.toast(`🏆 ${names[id] || id}`)
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // WATER FLOW SIMULATION
+  // ─────────────────────────────────────────────────────────
+
+  private updateWaterFlow(dt: number) {
+    this.waterFlowTimer += dt
+    if (this.waterFlowTimer < 0.5) return // Run every 0.5s for performance
+    this.waterFlowTimer = 0
+
+    const px = Math.floor(this.pos.x)
+    const pz = Math.floor(this.pos.z)
+    const py = Math.floor(this.pos.y)
+    const range = 16
+    let flowsThisTick = 0
+    const maxFlowsPerTick = 8
+
+    for (let dx = -range; dx <= range && flowsThisTick < maxFlowsPerTick; dx++) {
+      for (let dz = -range; dz <= range && flowsThisTick < maxFlowsPerTick; dz++) {
+        for (let dy = -8; dy <= 8 && flowsThisTick < maxFlowsPerTick; dy++) {
+          const wx = px + dx
+          const wy = py + dy
+          const wz = pz + dz
+          const block = this.world.getBlock(wx, wy, wz)
+          if (block !== BLOCK.WATER) continue
+
+          // Flow downward first
+          const below = this.world.getBlock(wx, wy - 1, wz)
+          if (below === BLOCK.AIR) {
+            this.world.setBlock(wx, wy - 1, wz, BLOCK.WATER)
+            flowsThisTick++
+            continue
+          }
+
+          // Flow horizontally to air blocks (simple spread)
+          const dirs: [number,number][] = [[1,0],[-1,0],[0,1],[0,-1]]
+          for (const [ddx, ddz] of dirs) {
+            if (flowsThisTick >= maxFlowsPerTick) break
+            const nx = wx + ddx
+            const nz = wz + ddz
+            const neighbor = this.world.getBlock(nx, wy, nz)
+            const neighborBelow = this.world.getBlock(nx, wy - 1, nz)
+            // Only flow to air that has ground below, or flow down
+            if (neighbor === BLOCK.AIR) {
+              if (neighborBelow !== BLOCK.AIR) {
+                this.world.setBlock(nx, wy, nz, BLOCK.WATER)
+                flowsThisTick++
+              } else {
+                // Flow down instead
+                this.world.setBlock(nx, wy - 1, nz, BLOCK.WATER)
+                flowsThisTick++
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // STEAM / MIST PARTICLES
+  // ─────────────────────────────────────────────────────────
+
+  private updateSteam(dt: number) {
+    this.steamTimer += dt
+    if (this.steamTimer < 0.3) return
+    this.steamTimer = 0
+
+    const px = Math.floor(this.pos.x)
+    const pz = Math.floor(this.pos.z)
+    const py = Math.floor(this.pos.y)
+    const range = 10
+
+    for (let dx = -range; dx <= range; dx++) {
+      for (let dz = -range; dz <= range; dz++) {
+        for (let dy = -5; dy <= 5; dy++) {
+          const wx = px + dx
+          const wy = py + dy
+          const wz = pz + dz
+
+          // Steam: water directly above magma
+          if (this.world.getBlock(wx, wy, wz) === BLOCK.WATER) {
+            const below = this.world.getBlock(wx, wy - 1, wz)
+            if (below === BLOCK.MAGMA && Math.random() < 0.15) {
+              // Spawn steam particle
+              if (this.particles.length < MAX_PARTICLES) {
+                this.particles.push({
+                  position: new THREE.Vector3(wx + 0.5, wy + 0.5, wz + 0.5),
+                  velocity: new THREE.Vector3((Math.random() - 0.5) * 0.5, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 0.5),
+                  age: 0,
+                  maxAge: 1.5 + Math.random() * 1.5,
+                  color: new THREE.Color(0.9, 0.92, 0.95),
+                })
+              }
+            }
+          }
+
+          // Water surface mist in cold biomes
+          if (this.world.getBlock(wx, wy, wz) === BLOCK.WATER && this.world.getBlock(wx, wy + 1, wz) === BLOCK.AIR) {
+            const biome = this.world.gen.getBiome(wx, wz)
+            if ((biome === 2 || biome === 4) && Math.random() < 0.03) {
+              if (this.particles.length < MAX_PARTICLES) {
+                this.particles.push({
+                  position: new THREE.Vector3(wx + Math.random(), wy + 1.0, wz + Math.random()),
+                  velocity: new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.3 + Math.random() * 0.5, (Math.random() - 0.5) * 0.3),
+                  age: 0,
+                  maxAge: 2 + Math.random() * 2,
+                  color: new THREE.Color(0.85, 0.88, 0.92),
+                })
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   // ─────────────────────────────────────────────────────────
