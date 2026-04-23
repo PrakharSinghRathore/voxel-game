@@ -18,9 +18,9 @@ export interface MeshData {
 }
 
 // ════════════════════════════════════════════════════════
-// FACE DEFINITIONS — 6 faces, CCW winding when viewed from outside
-// Corner order per face is strictly counter-clockwise so that
-// BOTH diagonal splits (0,1,2 + 0,2,3) produce valid front faces.
+// FACE DEFINITIONS — 6 faces, CW winding when viewed from outside
+// Corner order per face is clockwise, so we reverse index order
+// in the index buffer to produce CCW front faces for Three.js.
 // ════════════════════════════════════════════════════════
 
 // AO neighbor order per vertex: [side1, side2, corner]
@@ -235,18 +235,17 @@ export function meshChunk(
             target.colors.push(aoVal, lightVal, 1.0)
           }
 
-          // ── FIX: AO-aware diagonal selection with CONSISTENT CCW winding ──
-          // Both diagonals use the SAME winding (0,1,2 + 0,2,3).
-          // The flip only changes which vertex is the "pivot" of the two triangles.
-          // This keeps winding correct while picking the better-looking diagonal.
+          // ── AO-aware diagonal selection with REVERSED index order ──
+          // Corner winding is CW from outside, so we reverse each triangle
+          // to produce CCW front faces for Three.js backface culling.
           if (ao[0] + ao[2] < ao[1] + ao[3]) {
-            // diagonal: 0→2  (pivot at 0)
-            target.indices.push(startIdx, startIdx + 1, startIdx + 2)
-            target.indices.push(startIdx, startIdx + 2, startIdx + 3)
+            // diagonal: 0→2  — reversed to CCW
+            target.indices.push(startIdx + 2, startIdx + 1, startIdx)
+            target.indices.push(startIdx + 3, startIdx + 2, startIdx)
           } else {
-            // diagonal: 1→3  (pivot at 1, still CCW)
-            target.indices.push(startIdx + 1, startIdx + 2, startIdx + 3)
-            target.indices.push(startIdx + 1, startIdx + 3, startIdx)
+            // diagonal: 1→3  — reversed to CCW
+            target.indices.push(startIdx + 3, startIdx + 2, startIdx + 1)
+            target.indices.push(startIdx, startIdx + 3, startIdx + 1)
           }
         }
       }
