@@ -214,6 +214,15 @@ export class World {
               if (g > 0.88) block = BLOCK.GLOWSTONE
               else if (g > 0.85) block = BLOCK.CRYSTAL
             }
+            // Gravel patches underground
+            if (block === BLOCK.STONE && y < 20 && y > 3) {
+              const gv = (this.gen as any)["caveNoise"](wx * 0.15, y * 0.15, wz * 0.15)
+              if (gv > 0.9) block = BLOCK.GRAVEL
+            }
+            // Lava pools at the very bottom of the world
+            if (y <= 3 && block === BLOCK.AIR) {
+              block = BLOCK.LAVA
+            }
           } else if (y < h) {
             // Sub-surface fill
             if (biome === 1)                                  block = BLOCK.SAND

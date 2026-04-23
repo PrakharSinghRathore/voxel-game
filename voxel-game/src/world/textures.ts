@@ -1,8 +1,10 @@
 import * as THREE from "three"
 
-// Procedural texture atlas - 16 tiles across, 32px each = 512x512
-export const ATLAS_SIZE = 512
+// Procedural texture atlas - 16 tiles across, 32px each = 512 wide, 3 rows = 96 tall
 export const TILE_SIZE = 32
+export const ATLAS_SIZE = 512
+export const ATLAS_ROWS = 3
+export const ATLAS_HEIGHT = ATLAS_ROWS * TILE_SIZE
 export const TILES_PER_ROW = 16
 
 // Block face atlas coordinates (tileX, tileY)
@@ -35,6 +37,18 @@ export const TILE = {
   CAMPFIRE_SIDE: [9, 1],
   TORCH: [10, 1],
   WATER: [11, 1],
+  GLASS: [12, 1],
+  GRAVEL: [13, 1],
+  BOOKSHELF: [14, 1],
+  LADDER: [15, 1],
+  LAVA: [0, 2],
+  IRON_BLOCK: [1, 2],
+  GOLD_BLOCK: [2, 2],
+  DIAMOND_BLOCK: [3, 2],
+  TNT_TOP: [4, 2],
+  TNT_BOTTOM: [5, 2],
+  TNT_SIDE: [6, 2],
+  WOOL: [7, 2],
 } as const
 
 export type TileCoord = readonly [number, number]
@@ -570,19 +584,265 @@ function drawWater(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
   }
 }
 
+function drawGlass(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  // Very light blue tint, mostly transparent look
+  const grad = ctx.createLinearGradient(px, py, px + TILE_SIZE, py + TILE_SIZE)
+  grad.addColorStop(0, "rgba(200,230,255,0.3)")
+  grad.addColorStop(0.5, "rgba(220,240,255,0.15)")
+  grad.addColorStop(1, "rgba(200,230,255,0.3)")
+  ctx.fillStyle = grad
+  ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE)
+  // Border lines (frame)
+  ctx.strokeStyle = "rgba(180,210,240,0.7)"
+  ctx.lineWidth = 1
+  ctx.strokeRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2)
+  // Cross bars
+  ctx.beginPath()
+  ctx.moveTo(px + TILE_SIZE / 2, py + 1)
+  ctx.lineTo(px + TILE_SIZE / 2, py + TILE_SIZE - 1)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(px + 1, py + TILE_SIZE / 2)
+  ctx.lineTo(px + TILE_SIZE - 1, py + TILE_SIZE / 2)
+  ctx.stroke()
+  // Highlight
+  ctx.strokeStyle = "rgba(255,255,255,0.4)"
+  ctx.beginPath()
+  ctx.moveTo(px + 2, py + 2)
+  ctx.lineTo(px + 10, py + 2)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(px + 2, py + 2)
+  ctx.lineTo(px + 2, py + 10)
+  ctx.stroke()
+}
+
+function drawGravel(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawNoisy(ctx, tx, ty, "#8B8B7A", 0.25, 5001)
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  const rand = mulberry32(5002)
+  // Scattered stones
+  const stoneColors = ["#6B6B5A", "#9B9B8A", "#7A7A6A", "#A5A595"]
+  for (let i = 0; i < 25; i++) {
+    const x = Math.floor(rand() * (TILE_SIZE - 4))
+    const y = Math.floor(rand() * (TILE_SIZE - 4))
+    const size = 2 + Math.floor(rand() * 3)
+    ctx.fillStyle = stoneColors[Math.floor(rand() * stoneColors.length)]
+    ctx.fillRect(px + x, py + y, size, size)
+  }
+}
+
+function drawBookshelf(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawPlanks(ctx, tx, ty)
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  // Book rows
+  const bookColors = ["#8B0000", "#006400", "#00008B", "#8B4513", "#4B0082", "#2F4F4F", "#800000", "#008B8B"]
+  const rand = mulberry32(5003)
+  // Top shelf
+  for (let x = 1; x < TILE_SIZE - 1; x += 3) {
+    const h = 5 + Math.floor(rand() * 4)
+    ctx.fillStyle = bookColors[Math.floor(rand() * bookColors.length)]
+    ctx.fillRect(px + x, py + 2, 2, h)
+  }
+  // Bottom shelf
+  for (let x = 1; x < TILE_SIZE - 1; x += 3) {
+    const h = 5 + Math.floor(rand() * 4)
+    ctx.fillStyle = bookColors[Math.floor(rand() * bookColors.length)]
+    ctx.fillRect(px + x, py + 17, 2, h)
+  }
+  // Shelf dividers
+  ctx.fillStyle = "#5C3317"
+  ctx.fillRect(px, py + 11, TILE_SIZE, 2)
+  ctx.fillRect(px, py + 26, TILE_SIZE, 2)
+}
+
+function drawLadder(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  // Dark background (transparent)
+  ctx.fillStyle = "#0a0a0a"
+  ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE)
+  // Side rails
+  ctx.fillStyle = "#8D6E63"
+  ctx.fillRect(px + 6, py + 1, 2, TILE_SIZE - 2)
+  ctx.fillRect(px + 24, py + 1, 2, TILE_SIZE - 2)
+  // Rungs
+  ctx.fillStyle = "#A1887F"
+  for (let y = 4; y < TILE_SIZE - 4; y += 6) {
+    ctx.fillRect(px + 6, py + y, 20, 2)
+  }
+  // Highlights
+  ctx.fillStyle = "#BCAAA4"
+  ctx.fillRect(px + 6, py + 1, 1, TILE_SIZE - 2)
+  for (let y = 4; y < TILE_SIZE - 4; y += 6) {
+    ctx.fillRect(px + 6, py + y, 20, 1)
+  }
+}
+
+function drawLava(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawNoisy(ctx, tx, ty, "#D32F2F", 0.2, 5004)
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  const rand = mulberry32(5005)
+  // Hot spots
+  for (let i = 0; i < 12; i++) {
+    const x = Math.floor(rand() * (TILE_SIZE - 8))
+    const y = Math.floor(rand() * (TILE_SIZE - 8))
+    const grad = ctx.createRadialGradient(px + x + 4, py + y + 4, 0, px + x + 4, py + y + 4, 5)
+    grad.addColorStop(0, "#FFEB3B")
+    grad.addColorStop(0.4, "#FF9800")
+    grad.addColorStop(0.8, "#FF5722")
+    grad.addColorStop(1, "rgba(255,87,34,0)")
+    ctx.fillStyle = grad
+    ctx.fillRect(px + x, py + y, 8, 8)
+  }
+  // Bright cracks
+  ctx.strokeStyle = "#FF6F00"
+  ctx.lineWidth = 1
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath()
+    ctx.moveTo(px + rand() * TILE_SIZE, py + rand() * TILE_SIZE)
+    ctx.lineTo(px + rand() * TILE_SIZE, py + rand() * TILE_SIZE)
+    ctx.stroke()
+  }
+}
+
+function drawIronBlock(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawNoisy(ctx, tx, ty, "#B0B0B0", 0.1, 5006)
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  // Metallic highlights
+  ctx.strokeStyle = "rgba(220,220,220,0.5)"
+  ctx.lineWidth = 1
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath()
+    ctx.moveTo(px + 2, py + 4 + i * 8)
+    ctx.lineTo(px + TILE_SIZE - 2, py + 4 + i * 8)
+    ctx.stroke()
+  }
+  // Border
+  ctx.strokeStyle = "rgba(80,80,80,0.6)"
+  ctx.strokeRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2)
+}
+
+function drawGoldBlock(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawNoisy(ctx, tx, ty, "#FFD700", 0.08, 5007)
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  // Shiny highlights
+  ctx.strokeStyle = "rgba(255,245,157,0.5)"
+  ctx.lineWidth = 1
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath()
+    ctx.moveTo(px + 2, py + 4 + i * 8)
+    ctx.lineTo(px + TILE_SIZE - 2, py + 4 + i * 8)
+    ctx.stroke()
+  }
+  ctx.strokeStyle = "rgba(184,134,11,0.6)"
+  ctx.strokeRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2)
+}
+
+function drawDiamondBlock(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawNoisy(ctx, tx, ty, "#00BCD4", 0.08, 5008)
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  const rand = mulberry32(5009)
+  // Diamond facet lines
+  ctx.strokeStyle = "rgba(0,229,255,0.5)"
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(px + 16, py + 2)
+  ctx.lineTo(px + 30, py + 16)
+  ctx.lineTo(px + 16, py + 30)
+  ctx.lineTo(px + 2, py + 16)
+  ctx.closePath()
+  ctx.stroke()
+  // Inner cross
+  ctx.beginPath()
+  ctx.moveTo(px + 16, py + 2)
+  ctx.lineTo(px + 16, py + 30)
+  ctx.moveTo(px + 2, py + 16)
+  ctx.lineTo(px + 30, py + 16)
+  ctx.stroke()
+  // Sparkle
+  for (let i = 0; i < 6; i++) {
+    const x = Math.floor(rand() * TILE_SIZE)
+    const y = Math.floor(rand() * TILE_SIZE)
+    ctx.fillStyle = "rgba(178,235,242,0.7)"
+    ctx.fillRect(px + x, py + y, 2, 2)
+  }
+}
+
+function drawTNTTop(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  // Center fuse hole
+  ctx.fillStyle = "#2E2E2E"
+  ctx.fillRect(px + 12, py + 12, 8, 8)
+  ctx.fillStyle = "#1A1A1A"
+  ctx.fillRect(px + 14, py + 14, 4, 4)
+  // Brown border
+  drawNoisy(ctx, tx, ty, "#795548", 0.12, 5010)
+  // Dark center
+  ctx.fillStyle = "#2E2E2E"
+  ctx.fillRect(px + 12, py + 12, 8, 8)
+  ctx.fillStyle = "#424242"
+  ctx.fillRect(px + 13, py + 13, 6, 6)
+}
+
+function drawTNTBottom(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawNoisy(ctx, tx, ty, "#795548", 0.15, 5011)
+}
+
+function drawTNTSide(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  // Red body
+  drawNoisy(ctx, tx, ty, "#D32F2F", 0.12, 5012)
+  // White band
+  ctx.fillStyle = "#F5F5F5"
+  ctx.fillRect(px, py + 10, TILE_SIZE, 10)
+  // TNT text (simple blocks)
+  ctx.fillStyle = "#212121"
+  ctx.fillRect(px + 6, py + 12, 3, 6)
+  ctx.fillRect(px + 11, py + 12, 3, 6)
+  ctx.fillRect(px + 16, py + 12, 1, 6)
+  ctx.fillRect(px + 19, py + 12, 3, 6)
+  ctx.fillRect(px + 24, py + 12, 1, 6)
+}
+
+function drawWool(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  drawNoisy(ctx, tx, ty, "#F5F5F5", 0.06, 5013)
+  const px = tx * TILE_SIZE
+  const py = ty * TILE_SIZE
+  const rand = mulberry32(5014)
+  // Fluffy texture
+  for (let i = 0; i < 50; i++) {
+    const x = Math.floor(rand() * (TILE_SIZE - 2))
+    const y = Math.floor(rand() * (TILE_SIZE - 2))
+    const shade = rand() > 0.5 ? "rgba(255,255,255,0.3)" : "rgba(220,220,220,0.3)"
+    ctx.fillStyle = shade
+    ctx.fillRect(px + x, py + y, 2, 2)
+  }
+}
+
 let cachedTexture: THREE.Texture | null = null
 
 export function createBlockAtlasTexture(): THREE.Texture {
   if (cachedTexture) return cachedTexture
   const canvas = document.createElement("canvas")
   canvas.width = ATLAS_SIZE
-  canvas.height = ATLAS_SIZE
+  canvas.height = ATLAS_HEIGHT
   const ctx = canvas.getContext("2d")!
   ctx.imageSmoothingEnabled = false
 
   // Fill black background
   ctx.fillStyle = "#000"
-  ctx.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE)
+  ctx.fillRect(0, 0, ATLAS_SIZE, ATLAS_HEIGHT)
 
   // Draw each tile
   drawNoisy(ctx, TILE.GRASS_TOP[0], TILE.GRASS_TOP[1], "#4CAF50", 0.15, 1)
@@ -619,6 +879,18 @@ export function createBlockAtlasTexture(): THREE.Texture {
   drawCampfireSide(ctx, TILE.CAMPFIRE_SIDE[0], TILE.CAMPFIRE_SIDE[1])
   drawTorch(ctx, TILE.TORCH[0], TILE.TORCH[1])
   drawWater(ctx, TILE.WATER[0], TILE.WATER[1])
+  drawGlass(ctx, TILE.GLASS[0], TILE.GLASS[1])
+  drawGravel(ctx, TILE.GRAVEL[0], TILE.GRAVEL[1])
+  drawBookshelf(ctx, TILE.BOOKSHELF[0], TILE.BOOKSHELF[1])
+  drawLadder(ctx, TILE.LADDER[0], TILE.LADDER[1])
+  drawLava(ctx, TILE.LAVA[0], TILE.LAVA[1])
+  drawIronBlock(ctx, TILE.IRON_BLOCK[0], TILE.IRON_BLOCK[1])
+  drawGoldBlock(ctx, TILE.GOLD_BLOCK[0], TILE.GOLD_BLOCK[1])
+  drawDiamondBlock(ctx, TILE.DIAMOND_BLOCK[0], TILE.DIAMOND_BLOCK[1])
+  drawTNTTop(ctx, TILE.TNT_TOP[0], TILE.TNT_TOP[1])
+  drawTNTBottom(ctx, TILE.TNT_BOTTOM[0], TILE.TNT_BOTTOM[1])
+  drawTNTSide(ctx, TILE.TNT_SIDE[0], TILE.TNT_SIDE[1])
+  drawWool(ctx, TILE.WOOL[0], TILE.WOOL[1])
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.magFilter = THREE.NearestFilter
@@ -635,9 +907,9 @@ export function createBlockAtlasTexture(): THREE.Texture {
 export function uvFor(tile: TileCoord): [number, number, number, number] {
   const [tx, ty] = tile
   const u0 = (tx * TILE_SIZE) / ATLAS_SIZE
-  const v0 = 1 - ((ty + 1) * TILE_SIZE) / ATLAS_SIZE
+  const v0 = 1 - ((ty + 1) * TILE_SIZE) / ATLAS_HEIGHT
   const u1 = ((tx + 1) * TILE_SIZE) / ATLAS_SIZE
-  const v1 = 1 - (ty * TILE_SIZE) / ATLAS_SIZE
+  const v1 = 1 - (ty * TILE_SIZE) / ATLAS_HEIGHT
   // shrink a tiny bit to avoid bleeding
   const b = 0.5 / ATLAS_SIZE
   return [u0 + b, v0 + b, u1 - b, v1 - b]
@@ -647,7 +919,7 @@ export function uvFor(tile: TileCoord): [number, number, number, number] {
 export function tileToDataURL(tile: TileCoord, size = 32): string {
   const src = document.createElement("canvas")
   src.width = ATLAS_SIZE
-  src.height = ATLAS_SIZE
+  src.height = ATLAS_HEIGHT
   const srcCtx = src.getContext("2d")!
   srcCtx.imageSmoothingEnabled = false
   // Redraw full atlas onto this offscreen ctx - expensive but cached elsewhere
@@ -739,6 +1011,39 @@ export function tileToDataURL(tile: TileCoord, size = 32): string {
       case `${TILE.WATER[0]},${TILE.WATER[1]}`:
         drawWater(ctx, tx, ty)
         break
+      case `${TILE.GLASS[0]},${TILE.GLASS[1]}`:
+        drawGlass(ctx, tx, ty)
+        break
+      case `${TILE.GRAVEL[0]},${TILE.GRAVEL[1]}`:
+        drawGravel(ctx, tx, ty)
+        break
+      case `${TILE.BOOKSHELF[0]},${TILE.BOOKSHELF[1]}`:
+        drawBookshelf(ctx, tx, ty)
+        break
+      case `${TILE.LADDER[0]},${TILE.LADDER[1]}`:
+        drawLadder(ctx, tx, ty)
+        break
+      case `${TILE.LAVA[0]},${TILE.LAVA[1]}`:
+        drawLava(ctx, tx, ty)
+        break
+      case `${TILE.IRON_BLOCK[0]},${TILE.IRON_BLOCK[1]}`:
+        drawIronBlock(ctx, tx, ty)
+        break
+      case `${TILE.GOLD_BLOCK[0]},${TILE.GOLD_BLOCK[1]}`:
+        drawGoldBlock(ctx, tx, ty)
+        break
+      case `${TILE.DIAMOND_BLOCK[0]},${TILE.DIAMOND_BLOCK[1]}`:
+        drawDiamondBlock(ctx, tx, ty)
+        break
+      case `${TILE.TNT_TOP[0]},${TILE.TNT_TOP[1]}`:
+        drawTNTTop(ctx, tx, ty)
+        break
+      case `${TILE.TNT_SIDE[0]},${TILE.TNT_SIDE[1]}`:
+        drawTNTSide(ctx, tx, ty)
+        break
+      case `${TILE.WOOL[0]},${TILE.WOOL[1]}`:
+        drawWool(ctx, tx, ty)
+        break
       default:
         drawStoneCracks(ctx, tx, ty)
     }
@@ -753,7 +1058,7 @@ export function tileToDataURL(tile: TileCoord, size = 32): string {
   // draw tile into tmp atlas-sized canvas at (tile.x, tile.y)
   const tmp = document.createElement("canvas")
   tmp.width = ATLAS_SIZE
-  tmp.height = ATLAS_SIZE
+  tmp.height = ATLAS_HEIGHT
   const tmpCtx = tmp.getContext("2d")!
   tmpCtx.imageSmoothingEnabled = false
   draw(tmpCtx, tile[0], tile[1])

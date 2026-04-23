@@ -244,6 +244,16 @@ export function blockSurface(blockId: number): FootSurface {
     case 23: return "water"    // WATER
     case 24: return "stone"    // CAMPFIRE
     case 25: return "wood"     // TORCH
+    case 26: return "stone"    // GLASS
+    case 27: return "gravel"   // GRAVEL
+    case 28: return "wood"     // BOOKSHELF
+    case 29: return "wood"     // LADDER
+    case 30: return "stone"    // LAVA
+    case 31: return "stone"    // IRON_BLOCK
+    case 32: return "stone"    // GOLD_BLOCK
+    case 33: return "stone"    // DIAMOND_BLOCK
+    case 34: return "gravel"   // TNT
+    case 35: return "cloth"    // WOOL_WHITE
     default: return "stone"
   }
 }

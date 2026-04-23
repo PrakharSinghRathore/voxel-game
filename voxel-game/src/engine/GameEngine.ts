@@ -292,6 +292,8 @@ export class GameEngine {
   private pitch = 0
   private onGround = false
   private inWater = false
+  private wasInWater = false
+  private waterExitTimer = 0
   private sprinting = false
 
   // Input
@@ -800,10 +802,22 @@ export class GameEngine {
 
   private updatePlayer(dt: number) {
     if (this.inventoryOpen) return
-    // Check water
+    // Check water — sample head, torso, and feet levels for smooth transitions
     const headBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + PLAYER_EYE), Math.floor(this.pos.z))
+    const torsoBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 1.0), Math.floor(this.pos.z))
     const feetBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.4), Math.floor(this.pos.z))
-    this.inWater = headBlock === BLOCK.WATER || feetBlock === BLOCK.WATER
+    this.wasInWater = this.inWater
+    this.inWater = headBlock === BLOCK.WATER || torsoBlock === BLOCK.WATER || feetBlock === BLOCK.WATER
+
+    // Water exit boost: when just leaving water, give upward momentum to break surface
+    if (this.wasInWater && !this.inWater) {
+      if (this.vel.y > 0) {
+        // Player was swimming up — give a boost to clear the surface
+        this.vel.y = Math.max(this.vel.y, 6.0)
+      }
+      this.waterExitTimer = 0.4 // Grace period for jump after exiting water
+    }
+    if (this.waterExitTimer > 0) this.waterExitTimer -= dt
 
     // Movement input
     this.sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')
@@ -830,17 +844,34 @@ export class GameEngine {
     this.vel.x = dx
     this.vel.z = dz
 
-    // Gravity
+    // Gravity & swimming
     if (this.inWater) {
+      // Underwater physics: heavy drag + buoyancy
       this.vel.y *= 0.85
       this.vel.y += GRAVITY * 0.15 * dt
-      if (this.keys.has('Space')) this.vel.y = 3.5
-      if (this.sprinting && moving) this.vel.y = 2.0
+      if (this.keys.has('Space')) {
+        this.vel.y = 3.5  // Swim up
+      } else if (this.keys.has('ControlLeft') || this.keys.has('ControlRight')) {
+        this.vel.y = -3.0 // Swim down (Ctrl key)
+      }
+      if (this.sprinting && moving) this.vel.y = Math.max(this.vel.y, 2.0) // Dolphin kick
+    } else if (this.isClimbing()) {
+      // Ladder climbing: very slow gravity, can go up/down with keys
+      this.vel.y *= 0.5
+      this.vel.y += GRAVITY * 0.1 * dt
+      if (this.keys.has('Space') || (this.keys.has('KeyW') && moving)) {
+        this.vel.y = 2.5  // Climb up
+      } else if (this.keys.has('ControlLeft') || this.keys.has('ControlRight') || this.keys.has('ShiftLeft')) {
+        this.vel.y = -2.0 // Climb down
+      }
+      if (this.vel.y < -2.0) this.vel.y = -2.0 // Cap fall speed on ladder
     } else {
       this.vel.y += GRAVITY * dt
-      if (this.keys.has('Space') && this.onGround) {
+      // Allow jump during water exit grace period OR when on ground
+      if (this.keys.has('Space') && (this.onGround || this.waterExitTimer > 0)) {
         this.vel.y = JUMP_VEL
         this.onGround = false
+        this.waterExitTimer = 0
         SFX.jump()
       }
     }
@@ -912,6 +943,23 @@ export class GameEngine {
     }
     // Clamp
     if (this.pos.y < -10) { this.takeDamage(100); this.pos.y = 50 }
+  }
+
+  /** Check if the player is touching a ladder block */
+  private isClimbing(): boolean {
+    const hw = PLAYER_WIDTH / 2
+    // Check blocks around the player's torso area for ladder
+    for (let dy = 0; dy < PLAYER_HEIGHT; dy += 0.5) {
+      for (let dx = -hw; dx <= hw; dx += hw) {
+        for (let dz = -hw; dz <= hw; dz += hw) {
+          const bx = Math.floor(this.pos.x + dx)
+          const by = Math.floor(this.pos.y + dy)
+          const bz = Math.floor(this.pos.z + dz)
+          if (this.world.getBlock(bx, by, bz) === BLOCK.LADDER) return true
+        }
+      }
+    }
+    return false
   }
 
   private collidesAt(px: number, py: number, pz: number): boolean {
@@ -1677,6 +1725,10 @@ export class GameEngine {
     // Magma damage
     const feetBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y), Math.floor(this.pos.z))
     if (feetBlock === BLOCK.MAGMA) this.takeDamage(dt * 3)
+    // Lava damage — much more dangerous than magma
+    if (feetBlock === BLOCK.LAVA) this.takeDamage(dt * 8)
+    const torsoBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 1.0), Math.floor(this.pos.z))
+    if (torsoBlock === BLOCK.LAVA) this.takeDamage(dt * 6)
   }
 
   private takeDamage(amount: number) {

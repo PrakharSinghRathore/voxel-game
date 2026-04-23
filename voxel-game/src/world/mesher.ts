@@ -174,7 +174,9 @@ export function meshChunk(
         const wz = baseZ + z
         const def = BLOCK_DEFS[block]
         const isWater = block === BLOCK.WATER
-        const target = isWater ? water : def.transparent ? transparent : opaque
+        const isLava = block === BLOCK.LAVA
+        const isLiquid = isWater || isLava
+        const target = isLiquid ? water : def.transparent ? transparent : opaque
 
         for (let f = 0; f < 6; f++) {
           const face = FACES[f]
@@ -185,11 +187,11 @@ export function meshChunk(
 
           if (neighbor === block) continue
 
-          if (isWater) {
-            // Water: render faces where neighbor is NOT water
+          if (isLiquid) {
+            // Liquid: render faces where neighbor is NOT the same liquid
             // Top face (+y = index 2): only render when air above
-            // Side/bottom faces: render when neighbor is air or a non-water solid
-            if (neighbor === BLOCK.WATER) continue
+            // Side/bottom faces: render when neighbor is air or a non-liquid solid
+            if (neighbor === block) continue
             if (f === 2 && neighbor !== BLOCK.AIR) continue
           } else {
             if (!isEmptyForFace(neighbor, block)) continue
