@@ -146,10 +146,11 @@ function isEmptyForFace(neighbor: BlockId, self: BlockId): boolean {
 export function meshChunk(
   world: World,
   chunk: Chunk,
-): { opaque: MeshData; transparent: MeshData; water: MeshData } {
+): { opaque: MeshData; transparent: MeshData; water: MeshData; lava: MeshData } {
   const opaque:      MeshData = { positions: [], normals: [], uvs: [], colors: [], indices: [] }
   const transparent: MeshData = { positions: [], normals: [], uvs: [], colors: [], indices: [] }
   const water:       MeshData = { positions: [], normals: [], uvs: [], colors: [], indices: [] }
+  const lava:        MeshData = { positions: [], normals: [], uvs: [], colors: [], indices: [] }
 
   const baseX = chunk.cx * CHUNK_SIZE_X
   const baseZ = chunk.cz * CHUNK_SIZE_Z
@@ -176,7 +177,7 @@ export function meshChunk(
         const isWater = block === BLOCK.WATER
         const isLava = block === BLOCK.LAVA
         const isLiquid = isWater || isLava
-        const target = isLiquid ? water : def.transparent ? transparent : opaque
+        const target = isLava ? lava : isWater ? water : def.transparent ? transparent : opaque
 
         for (let f = 0; f < 6; f++) {
           const face = FACES[f]
@@ -254,5 +255,5 @@ export function meshChunk(
     }
   }
 
-  return { opaque, transparent, water }
+  return { opaque, transparent, water, lava }
 }

@@ -43,6 +43,11 @@ export class TerrainGenerator {
     this.treeNoise    = createNoise2D(mulberry32(seed + 5))
   }
 
+  /** Public accessor for cave noise — used by World for gravel/glowstone placement */
+  sampleCaveNoise(x: number, y: number, z: number): number {
+    return this.caveNoise(x, y, z)
+  }
+
   // 0=plains, 1=desert, 2=tundra, 3=forest, 4=mountain
   getBiome(worldX: number, worldZ: number): number {
     const n = this.biomeNoise(worldX * 0.005, worldZ * 0.005)
@@ -210,13 +215,13 @@ export class World {
             if (y < h - dirtDepth - 2 && this.gen.isCave(wx, y, wz)) block = BLOCK.AIR
             // FIX 4: glowstone/crystal only below y=14 (far from any surface)
             if (y < 14 && block === BLOCK.STONE) {
-              const g = (this.gen as any)["caveNoise"](wx * 0.3, y * 0.3, wz * 0.3)
+              const g = this.gen.sampleCaveNoise(wx * 0.3, y * 0.3, wz * 0.3)
               if (g > 0.88) block = BLOCK.GLOWSTONE
               else if (g > 0.85) block = BLOCK.CRYSTAL
             }
             // Gravel patches underground
             if (block === BLOCK.STONE && y < 20 && y > 3) {
-              const gv = (this.gen as any)["caveNoise"](wx * 0.15, y * 0.15, wz * 0.15)
+              const gv = this.gen.sampleCaveNoise(wx * 0.15, y * 0.15, wz * 0.15)
               if (gv > 0.9) block = BLOCK.GRAVEL
             }
             // Lava pools at the very bottom of the world

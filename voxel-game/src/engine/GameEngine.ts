@@ -187,6 +187,56 @@ const WATER_FRAG = `
   }
 `
 
+const LAVA_FRAG = `
+  uniform sampler2D atlas;
+  uniform float uDaylight;
+  uniform vec3 uFogColor;
+  uniform float uFogNear;
+  uniform float uFogFar;
+  uniform float uTime;
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  varying float vFogDepth;
+  void main() {
+    // Slow churning UV distortion for lava
+    vec2 lavaUv = vUv;
+    lavaUv.x += sin(uTime * 0.3 + vUv.y * 8.0 + vUv.x * 4.0) * 0.012;
+    lavaUv.y += cos(uTime * 0.25 + vUv.x * 6.0) * 0.010;
+    // Bubbling distortion
+    lavaUv.x += sin(uTime * 1.2 + vUv.x * 20.0) * 0.004;
+    lavaUv.y += cos(uTime * 1.0 + vUv.y * 18.0) * 0.003;
+    vec4 tex = texture2D(atlas, lavaUv);
+    float ao = vColor.r;
+    float light = vColor.g;
+    // Lava is always bright — emissive overrides darkness
+    vec3 n = normalize(vNormal);
+    vec3 hotColor = vec3(1.0, 0.35, 0.0);   // bright orange
+    vec3 coolColor = vec3(0.6, 0.1, 0.0);    // dark red
+    vec3 glowColor = vec3(1.0, 0.8, 0.2);    // yellow hotspot
+    // Pulsing intensity
+    float pulse = 0.85 + 0.15 * sin(uTime * 1.5 + vUv.x * 10.0 + vUv.y * 8.0);
+    // Mix texture with lava colors
+    vec3 baseCol = tex.rgb * ao;
+    vec3 col = mix(baseCol, hotColor, 0.55) * pulse;
+    // Add hot spots (bright yellow bubbles)
+    float hotspot = smoothstep(0.55, 0.75, sin(uTime * 2.0 + vUv.x * 30.0) * cos(uTime * 1.8 + vUv.y * 25.0));
+    col = mix(col, glowColor, hotspot * 0.4);
+    // Cool edges (where AO indicates nearby blocks)
+    float edgeCool = smoothstep(0.6, 0.85, ao);
+    col = mix(coolColor * pulse, col, edgeCool);
+    // Emissive glow — lava lights itself regardless of sun
+    float emissive = max(light * 0.55, 0.8);
+    col *= emissive;
+    // Add slight orange fog tint near lava
+    float fog = smoothstep(uFogNear, uFogFar, vFogDepth);
+    vec3 lavaFog = mix(uFogColor, vec3(0.5, 0.15, 0.0), 0.3);
+    col = mix(col, lavaFog, fog * 0.6);
+    // Lava is fully opaque
+    gl_FragColor = vec4(col, 0.95);
+  }
+`
+
 const SKY_VERT = `
   varying vec3 vWorldPos;
   void main() {
@@ -279,11 +329,12 @@ export class GameEngine {
   // World
   private world!: World
   private chunkGroup!: THREE.Group
-  private chunkMeshes = new Map<string, { opaque: THREE.Mesh; transparent: THREE.Mesh; water: THREE.Mesh }>()
+  private chunkMeshes = new Map<string, { opaque: THREE.Mesh; transparent: THREE.Mesh; water: THREE.Mesh; lava: THREE.Mesh }>()
   private atlas!: THREE.Texture
   private opaqueMat!: THREE.ShaderMaterial
   private transparentMat!: THREE.ShaderMaterial
   private waterMat!: THREE.ShaderMaterial
+  private lavaMat!: THREE.ShaderMaterial
 
   // Player
   private pos = new THREE.Vector3(8, 40, 8)
@@ -487,6 +538,11 @@ export class GameEngine {
     })
     this.waterMat = new THREE.ShaderMaterial({
       vertexShader: CHUNK_VERT, fragmentShader: WATER_FRAG,
+      uniforms: { ...baseUniforms, uTime: { value: 0 } },
+      transparent: true, side: THREE.DoubleSide, depthWrite: false,
+    })
+    this.lavaMat = new THREE.ShaderMaterial({
+      vertexShader: CHUNK_VERT, fragmentShader: LAVA_FRAG,
       uniforms: { ...baseUniforms, uTime: { value: 0 } },
       transparent: true, side: THREE.DoubleSide, depthWrite: false,
     })
@@ -1021,23 +1077,27 @@ export class GameEngine {
         this.chunkGroup.remove(meshes.opaque)
         this.chunkGroup.remove(meshes.transparent)
         this.chunkGroup.remove(meshes.water)
+        this.chunkGroup.remove(meshes.lava)
         meshes.opaque.geometry.dispose()
         meshes.transparent.geometry.dispose()
         meshes.water.geometry.dispose()
+        meshes.lava.geometry.dispose()
         this.chunkMeshes.delete(key)
       }
     }
   }
 
   private buildChunkMesh(cx: number, cz: number, chunk: Chunk) {
-    const { opaque, transparent, water } = meshChunk(this.world, chunk)
+    const { opaque, transparent, water, lava } = meshChunk(this.world, chunk)
     const oMesh = this.makeMesh(opaque, this.opaqueMat)
     const tMesh = this.makeMesh(transparent, this.transparentMat)
     const wMesh = this.makeMesh(water, this.waterMat)
+    const lMesh = this.makeMesh(lava, this.lavaMat)
     this.chunkGroup.add(oMesh)
     this.chunkGroup.add(tMesh)
     this.chunkGroup.add(wMesh)
-    this.chunkMeshes.set(`${cx},${cz}`, { opaque: oMesh, transparent: tMesh, water: wMesh })
+    this.chunkGroup.add(lMesh)
+    this.chunkMeshes.set(`${cx},${cz}`, { opaque: oMesh, transparent: tMesh, water: wMesh, lava: lMesh })
     chunk.dirty = false
   }
 
@@ -1047,9 +1107,11 @@ export class GameEngine {
     this.chunkGroup.remove(old.opaque)
     this.chunkGroup.remove(old.transparent)
     this.chunkGroup.remove(old.water)
+    this.chunkGroup.remove(old.lava)
     old.opaque.geometry.dispose()
     old.transparent.geometry.dispose()
     old.water.geometry.dispose()
+    old.lava.geometry.dispose()
     this.buildChunkMesh(cx, cz, chunk)
   }
 
@@ -1818,7 +1880,7 @@ export class GameEngine {
     fog.near = 30 + daylight * 20
     fog.far = 60 + daylight * 30
     // Update chunk materials
-    const mats = [this.opaqueMat, this.transparentMat, this.waterMat]
+    const mats = [this.opaqueMat, this.transparentMat, this.waterMat, this.lavaMat]
     for (const m of mats) {
       m.uniforms.uDaylight.value = 0.15 + daylight * 0.85
       m.uniforms.uFogColor.value.copy(fogColor)
@@ -1826,6 +1888,7 @@ export class GameEngine {
       m.uniforms.uFogFar.value = fog.far
     }
     this.waterMat.uniforms.uTime.value = performance.now() / 1000
+    this.lavaMat.uniforms.uTime.value = performance.now() / 1000
   }
 
   // ─────────────────────────────────────────────────────────
